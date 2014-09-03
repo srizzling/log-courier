@@ -184,7 +184,7 @@ func (p *Prospector) scan(path string, config *core.FileConfig) {
 	if err != nil {
 		log.Error("glob(%s) failed: %v", path, err)
 		return
-	}
+	} 
 
 	// Check any matched files to see if we need to start a harvester
 	for _, file := range matches {
@@ -319,6 +319,10 @@ func (p *Prospector) scan(path string, config *core.FileConfig) {
 			} else if info.identity.Stat().ModTime() != fileinfo.ModTime() {
 				// Resume harvesting of an old file we've stopped harvesting from
 				log.Info("Resuming harvester on an old file that was just modified: %s", file)
+				// Reset on Resume
+				if config.ResetOnResume {
+					info.finish_offset = 0
+				}
 			} else {
 				resume = false
 			}

@@ -15,7 +15,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+ */ 
 
 package core
 
@@ -53,6 +53,7 @@ const (
 	default_NetworkConfig_MaxPendingPayloads int64         = 10
 	default_StreamConfig_Codec               string        = "plain"
 	default_StreamConfig_DeadTime            int64         = 86400
+	default_FileConfig_SeekToStartOnChange	bool	   = false
 )
 
 var (
@@ -113,8 +114,8 @@ type StreamConfig struct {
 
 type FileConfig struct {
 	Paths []string `config:"paths"`
-
 	StreamConfig `config:",embed"`
+	ResetOnResume bool	 `config:"reset on resume"`
 }
 
 func NewConfig() *Config {
