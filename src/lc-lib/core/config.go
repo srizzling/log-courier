@@ -48,6 +48,7 @@ const (
   default_NetworkConfig_MaxPendingPayloads int64         = 10
   default_FileConfig_Codec                 string        = "plain"
   default_FileConfig_DeadTime              int64         = 86400
+  default_FileConfig_SeekToStartOnChange	bool	   = false
 )
 
 type Config struct {
@@ -93,7 +94,7 @@ type FileConfig struct {
   Fields   map[string]interface{} `config:"fields"`
   Codec    CodecConfigStub        `config:"codec"`
   DeadTime time.Duration          `config:"dead time"`
-
+  ResetOnResume bool	  	  	  `config:"reset on resume"`
   CodecFactory CodecFactory
 }
 
