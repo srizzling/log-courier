@@ -27,7 +27,7 @@ describe 'log-courier' do
     {
       "network": {
         "ssl ca": "#{@ssl_cert.path}",
-        "servers": [ "127.0.0.1:#{server_port}" ]
+        "servers": [ "localhost:#{server_port}" ]
       },
       "files": [
         {
@@ -37,6 +37,7 @@ describe 'log-courier' do
     }
     config
 
+    # Remember the sized queue we use for test buffering is only 10_000 lines
     5_000.times do |i|
       @log_courier.puts "stdin line test #{i}"
     end
@@ -47,7 +48,46 @@ describe 'log-courier' do
     receive_and_check(total: 5_000) do |e|
       expect(e['message']).to eq "stdin line test #{i}"
       expect(e['host']).to eq host
-      expect(e['file']).to eq '-'
+      expect(e['path']).to eq '-'
+      i += 1
+    end
+  end
+
+  it 'should split lines that are too long' do
+    startup stdin: true, config: <<-config
+    {
+      "network": {
+        "ssl ca": "#{@ssl_cert.path}",
+        "servers": [ "127.0.0.1:#{server_port}" ]
+      },
+      "files": [
+        {
+          "paths": [ "-" ]
+        }
+      ]
+    }
+    config
+
+    # This should send over the 10 MiB packet limit but not break it
+    # Since we are sending 10 * 2 = 20 MiB
+    10.times do |i|
+      # 1048575 since the line terminater adds 1 - ensures second part fits
+      @log_courier.puts 'X' * 1_048_575 * 2
+    end
+
+    # Receive and check
+    i = 0
+    host = Socket.gethostname
+    receive_and_check(total: 20) do |e|
+      if i.even?
+        expect(e['message'].length).to eq 1_048_576
+        expect(e['tags']).to eq ['splitline']
+      else
+        expect(e['message'].length).to eq 1_048_574
+        expect(e.has_key?('tags')).to eq false
+      end
+      expect(e['host']).to eq host
+      expect(e['path']).to eq '-'
       i += 1
     end
   end
@@ -139,26 +179,6 @@ describe 'log-courier' do
     # Throw the file back with all the content already there
     # We can't just create a new one, it might pick it up before we write
     f1.rename path
-
-    # Receive and check
-    receive_and_check
-  end
-
-  it 'should handle incomplete lines in buffered logs by waiting for a line end' do
-    f = create_log
-
-    startup
-
-    1_000.times do |i|
-      if (i + 100) % 500 == 0
-        # Make 2 events where we pause for >10s before adding new line, this takes us past eof_timeout
-        f.log_partial_start
-        sleep 15
-        f.log_partial_end
-      else
-        f.log
-      end
-    end
 
     # Receive and check
     receive_and_check
@@ -458,11 +478,11 @@ describe 'log-courier' do
 
     # Receive and check
     receive_and_check(total: 10_000) do |e|
-      if e['file'] == "#{TEMP_PATH}/logs/log-0"
+      if e['path'] == "#{TEMP_PATH}/logs/log-0"
         expect(e['first']).to eq "value"
         expect(e['second']).to eq "more"
       else
-        expect(e['file']).to eq "#{TEMP_PATH}/logs/log-1"
+        expect(e['path']).to eq "#{TEMP_PATH}/logs/log-1"
         expect(e['first']).to eq "different"
         expect(e['second']).to eq "something"
       end
@@ -498,7 +518,7 @@ describe 'log-courier' do
       expect(e['array'][0]).to eq 1
       expect(e['array'][1]).to eq 2
       expect(e['host']).to eq host
-      expect(e['file']).to eq '-'
+      expect(e['path']).to eq '-'
       i += 1
     end
   end
@@ -532,7 +552,7 @@ describe 'log-courier' do
       expect(e['dict']['first']).to eq 'first'
       expect(e['dict']['second']).to eq 5
       expect(e['host']).to eq host
-      expect(e['file']).to eq '-'
+      expect(e['path']).to eq '-'
       i += 1
     end
   end

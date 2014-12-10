@@ -22,10 +22,11 @@ require 'multi_json'
 require 'thread'
 require 'zlib'
 
+class NativeException; end
+
 module LogCourier
-  # TODO: Make these shared
-  class ClientShutdownSignal < StandardError; end
-  class ClientProtocolError < StandardError; end
+  class ShutdownSignal < StandardError; end
+  class ProtocolError < StandardError; end
 
   # Describes a pending payload
   class PendingPayload
@@ -41,7 +42,7 @@ module LogCourier
       @ack_events = 0
 
       options.each do |k, v|
-        raise ArgumentError unless self.respond_to?(k)
+        fail ArgumentError unless self.respond_to?(k)
         instance_variable_set "@#{k}", v
       end
     end
@@ -57,6 +58,7 @@ module LogCourier
       }.merge!(options)
 
       @logger = @options[:logger]
+      @logger['plugin'] = 'output/courier'
 
       require 'log-courier/client_tls'
       @client = ClientTls.new(@options)
@@ -89,15 +91,19 @@ module LogCourier
     def publish(event)
       # Pass the event into the spooler
       @event_queue << event
+      return
     end
 
     def shutdown
       # Raise a shutdown signal in the spooler and wait for it
-      @spooler_thread.raise ClientShutdownSignal
-      @io_thread.raise ClientShutdownSignal
+      @spooler_thread.raise ShutdownSignal
+      @io_thread.raise ShutdownSignal
       @spooler_thread.join
       @io_thread.join
+      return
     end
+
+    private
 
     def run_spooler
       loop do
@@ -123,9 +129,9 @@ module LogCourier
           @io_control << ['E', spooled]
         end
       end
-    rescue ClientShutdownSignal
-      # Just shutdown
-      0
+      return
+    rescue ShutdownSignal
+      return
     end
 
     def run_io
@@ -206,12 +212,12 @@ module LogCourier
                 # Keepalive timeout hit, send a PING unless we were awaiting a PONG
                 if @pending_ping
                   # Timed out, break into reconnect
-                  raise TimeoutError
+                  fail TimeoutError
                 end
 
                 # Is send full? can_send will be false if so
                 # We should've started receiving ACK by now so time out
-                raise TimeoutError unless can_send
+                fail TimeoutError unless can_send
 
                 # Send PING
                 send_ping
@@ -224,19 +230,18 @@ module LogCourier
             # Reset keepalive timeout
             reset_keepalive
           end
-        rescue ClientProtocolError => e
+        rescue ProtocolError => e
           # Reconnect required due to a protocol error
-          @logger.warn("[LogCourierClient] Protocol error: #{e}") unless @logger.nil?
+          @logger.warn 'Protocol error', :error => e.message unless @logger.nil?
         rescue TimeoutError
           # Reconnect due to timeout
-          @logger.warn('[LogCourierClient] Timeout occurred') unless @logger.nil?
-        rescue ClientShutdownSignal
+          @logger.warn 'Timeout occurred' unless @logger.nil?
+        rescue ShutdownSignal
           # Shutdown, break out
           break
-        rescue => e
+        rescue StandardError, NativeException => e
           # Unknown error occurred
-          @logger.warn("[LogCourierClient] Unknown error: #{e}") unless @logger.nil?
-          @logger.warn("[LogCourierClient] #{e.backtrace}: #{e.message} (#{e.class})") unless @logger.nil?
+          @logger.warn e, :hint => 'Unknown error' unless @logger.nil?
         end
 
         # Disconnect and retry payloads
@@ -248,10 +253,12 @@ module LogCourier
       end
 
       @client.disconnect
+      return
     end
 
     def reset_keepalive
       @keepalive_next = Time.now.to_i + @keepalive_timeout
+      return
     end
 
     def generate_nonce
@@ -261,6 +268,7 @@ module LogCourier
     def send_ping
       # Send it
       @client.send 'PING', ''
+      return
     end
 
     def send_jdat(events)
@@ -287,6 +295,7 @@ module LogCourier
 
       # Send it
       @client.send 'JDAT', payload.data
+      return
     end
 
     def buffer_jdat_data(events, nonce)
@@ -306,23 +315,21 @@ module LogCourier
 
       # Add length and then the data
       buffer << [json_data.length].pack('N') << json_data
+      return
     end
 
     def process_pong(message)
       # Sanity
-      if message.length != 0
-        raise ClientProtocolError, "Unexpected data attached to pong message (#{message.length})"
-      end
+      fail ProtocolError, "Unexpected data attached to pong message (#{message.length})" if message.length != 0
 
       # No longer pending a PONG
       @ping_pending = false
+      return
     end
 
     def process_ackn(message)
       # Sanity
-      if message.length != 20
-        raise ClientProtocolError, "ACKN message size invalid (#{message.length})"
-      end
+      fail ProtocolError, "ACKN message size invalid (#{message.length})" if message.length != 20
 
       # Grab nonce
       sequence, nonce = message[0...4].unpack('N').first, message[4..-1]
@@ -347,6 +354,7 @@ module LogCourier
           payload.data = nil
         end
       end
+      return
     end
   end
 end

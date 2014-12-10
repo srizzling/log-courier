@@ -17,10 +17,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Were these needed? Output doesn't seem to need them
-#require "logstash/inputs/base"
-#require "logstash/namespace"
-
 module LogStash
   module Inputs
     # Receive events over the Log Courier protocol
@@ -60,25 +56,36 @@ module LogStash
       # Curve secret key
       config :curve_secret_key, :validate => :string
 
+      # Max packet size
+      config :max_packet_size, :validate => :number
+
+      # Peer recv queue
+      config :peer_recv_queue, :validate => :number
+
       public
 
       def register
         @logger.info('Starting courier input listener', :address => "#{@host}:#{@port}")
 
+        options = {
+          logger:                @logger,
+          address:               @host,
+          port:                  @port,
+          transport:             @transport,
+          ssl_certificate:       @ssl_certificate,
+          ssl_key:               @ssl_key,
+          ssl_key_passphrase:    @ssl_key_passphrase,
+          ssl_verify:            @ssl_verify,
+          ssl_verify_default_ca: @ssl_verify_default_ca,
+          ssl_verify_ca:         @ssl_verify_ca,
+          curve_secret_key:      @curve_secret_key,
+        }
+
+        options[:max_packet_size] = @max_packet_size unless @max_packet_size.nil?
+        options[:peer_recv_queue] = @peer_recv_queue unless @peer_recv_queue.nil?
+
         require 'log-courier/server'
-        @log_courier = LogCourier::Server.new(
-          :logger                => @logger,
-          :address               => @host,
-          :port                  => @port,
-          :transport             => @transport,
-          :ssl_certificate       => @ssl_certificate,
-          :ssl_key               => @ssl_key,
-          :ssl_key_passphrase    => @ssl_key_passphrase,
-          :ssl_verify            => @ssl_verify,
-          :ssl_verify_default_ca => @ssl_verify_default_ca,
-          :ssl_verify_ca         => @ssl_verify_ca,
-          :curve_secret_key      => @curve_secret_key
-        )
+        @log_courier = LogCourier::Server.new options
       end
 
       public

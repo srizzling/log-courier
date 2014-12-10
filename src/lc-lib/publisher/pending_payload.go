@@ -20,42 +20,51 @@ import (
   "bytes"
   "compress/zlib"
   "encoding/binary"
-  "encoding/json"
-  "io"
+  "errors"
   "lc-lib/core"
   "time"
+)
+
+var (
+  ErrPayloadCorrupt = errors.New("Payload is corrupt")
 )
 
 type pendingPayload struct {
   next          *pendingPayload
   nonce         string
   events        []*core.EventDescriptor
-  num_events    int
+  last_sequence int
+  sequence_len  int
   ack_events    int
-  payload_start int
+  processed     int
   payload       []byte
-  timeout       *time.Time
+  timeout       time.Time
 }
 
-func newPendingPayload(events []*core.EventDescriptor, nonce string, hostname string) (*pendingPayload, error) {
+func newPendingPayload(events []*core.EventDescriptor, nonce string, timeout time.Duration) (*pendingPayload, error) {
   payload := &pendingPayload{
     events:     events,
     nonce:      nonce,
-    num_events: len(events),
+    timeout:    time.Now().Add(timeout),
   }
 
-  if err := payload.Generate(hostname); err != nil {
+  if err := payload.Generate(); err != nil {
     return nil, err
   }
 
   return payload, nil
 }
 
-func (pp *pendingPayload) Generate(hostname string) (err error) {
+func (pp *pendingPayload) Generate() (err error) {
   var buffer bytes.Buffer
 
+  // Assertion
+  if len(pp.events) == 0 {
+    return ErrPayloadCorrupt
+  }
+
   // Begin with the nonce
-  if _, err = buffer.Write([]byte(pp.nonce)); err != nil {
+  if _, err = buffer.Write([]byte(pp.nonce)[0:16]); err != nil {
     return
   }
 
@@ -66,9 +75,10 @@ func (pp *pendingPayload) Generate(hostname string) (err error) {
 
   // Append all the events
   for _, event := range pp.events[pp.ack_events:] {
-    // Add host field
-    event.Event["host"] = hostname
-    if err = pp.bufferJdatDataEvent(compressor, event); err != nil {
+    if err = binary.Write(compressor, binary.BigEndian, uint32(len(event.Event))); err != nil {
+      return
+    }
+    if _, err = compressor.Write(event.Event); err != nil {
       return
     }
   }
@@ -76,33 +86,44 @@ func (pp *pendingPayload) Generate(hostname string) (err error) {
   compressor.Close()
 
   pp.payload = buffer.Bytes()
-  pp.payload_start = pp.ack_events
+  pp.last_sequence = 0
+  pp.sequence_len = len(pp.events) - pp.ack_events
 
   return
 }
 
-func (pp *pendingPayload) bufferJdatDataEvent(output io.Writer, event *core.EventDescriptor) (err error) {
-  var value []byte
-  value, err = json.Marshal(event.Event)
-  if err != nil {
-    log.Error("JSON event encoding error: %s", err)
-
-    if err = binary.Write(output, binary.BigEndian, 2); err != nil {
-      return
-    }
-    if _, err = output.Write([]byte("{}")); err != nil {
-      return
-    }
-
-    return
+func (pp *pendingPayload) Ack(sequence int) (int, bool) {
+  if sequence <= pp.last_sequence {
+    // No change
+    return 0, false
+  } else if sequence >= pp.sequence_len {
+    // Full ACK
+    lines := pp.sequence_len - pp.last_sequence
+    pp.ack_events = len(pp.events)
+    pp.last_sequence = sequence
+    pp.payload = nil
+    return lines, true
   }
 
-  if err = binary.Write(output, binary.BigEndian, uint32(len(value))); err != nil {
-    return
-  }
-  if _, err = output.Write(value); err != nil {
-    return
-  }
+  lines := sequence - pp.last_sequence
+  pp.ack_events += lines
+  pp.last_sequence = sequence
+  pp.payload = nil
+  return lines, false
+}
 
-  return nil
+func (pp *pendingPayload) HasAck() bool {
+  return pp.ack_events != 0
+}
+
+func (pp *pendingPayload) Complete() bool {
+  return len(pp.events) == 0
+}
+
+func (pp *pendingPayload) Rollup() []*core.EventDescriptor {
+  pp.processed += pp.ack_events
+  rollup := pp.events[:pp.ack_events]
+  pp.events = pp.events[pp.ack_events:]
+  pp.ack_events = 0
+  return rollup
 }

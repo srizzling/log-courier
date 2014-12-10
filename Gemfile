@@ -1,9 +1,16 @@
 source 'https://rubygems.org'
-gem 'ffi-rzmq'
-gem 'multi_json'
-gem 'rspec'
 
-gem 'oj',        :platforms => :mri
-gem 'ruby-prof', :platforms => :mri
+# Log Courier gem dependencies
+gem 'cabin',      '~> 0.6'
+gem 'ffi-rzmq',   '~> 2.0'
+gem 'multi_json', '~> 1.10'
 
-gem 'jrjackson', :platforms => :jruby
+# Log Courier gem JSON parsers
+gem 'oj',        '~> 2.11', :platforms => :mri
+gem 'jrjackson', '~> 0.2',  :platforms => :jruby
+
+# Profiler for MRI
+gem 'ruby-prof', '~> 0.15', :platforms => :mri
+
+# Tests
+gem 'rspec',     '~> 3.1'

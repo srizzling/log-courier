@@ -13,33 +13,35 @@
   - [Fileglob](#fileglob)
 - [`"general"`](#general)
   - [`"admin enabled"`](#admin-enabled)
-  - [`"admin bind address"`](#admin-bind-address)
-  - [`"admin port"`](#admin-port)
-  - [`"persist directory"`](#persist-directory)
-  - [`"prospect interval"`](#prospect-interval)
-  - [`"spool size"`](#spool-size)
-  - [`"spool timeout"`](#spool-timeout)
+  - [`"admin listen address"`](#admin-listen-address)
+  - [`"log file"`](#log-file)
   - [`"log level"`](#log-level)
   - [`"log stdout"`](#log-stdout)
   - [`"log syslog"`](#log-syslog)
-  - [`"log file"`](#log-file)
+  - [`"max line bytes"`](#max-line-bytes)
+  - [`"persist directory"`](#persist-directory)
+  - [`"prospect interval"`](#prospect-interval)
+  - [`"spool max bytes"`](#spool-max-bytes)
+  - [`"spool size"`](#spool-size)
+  - [`"spool timeout"`](#spool-timeout)
 - [`"network"`](#network)
-  - [`"transport"`](#transport)
+  - [`"curve server key"`](#curve-server-key)
+  - [`"curve public key"`](#curve-public-key)
+  - [`"curve secret key"`](#curve-secret-key)
+  - [`"max pending payloads"`](#max-pending-payloads)
+  - [`"peer send queue"`](#peer-send-queue)
+  - [`"reconnect"`](#reconnect)
   - [`"servers"`](#servers)
   - [`"ssl ca"`](#ssl-ca)
   - [`"ssl certificate"`](#ssl-certificate)
   - [`"ssl key"`](#ssl-key)
-  - [`"curve server key"`](#curve-server-key)
-  - [`"curve public key"`](#curve-public-key)
-  - [`"curve secret key"`](#curve-secret-key)
   - [`"timeout"`](#timeout)
-  - [`"reconnect"`](#reconnect)
-  - [`"max pending payloads"`](#max-pending-payloads)
+  - [`"transport"`](#transport)
 - [`"files"`](#files)
-  - [`"paths"`](#paths)
-  - [`"fields"`](#fields)
-  - [`"dead time"`](#dead-time)
   - [`"codec"`](#codec)
+  - [`"dead time"`](#dead-time)
+  - [`"fields"`](#fields)
+  - [`"paths"`](#paths)
 - [`"includes"`](#includes)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -153,26 +155,77 @@ of new log files.
 
 ### `"admin enabled"`
 
-*Boolean. Optional. Default: false*
+*Boolean. Optional. Default: false*  
 *Requires restart*
 
 Enables the administration listener that the `lc-admin` utility can connect to.
 
-### `"admin bind address"`
+### `"admin listen address"`
 
-*String. Optional. Default: 127.0.0.1*
+*String. Optional. Default: tcp:127.0.0.1:1234*
 
-The TCP address the administration listener should listen on.
+The address the administration listener should listen on in the format
+`transport:address`.
 
-### `"admin port"`
+Allowed transports are "tcp", "tcp4", "tcp6" (Windows and *nix) and "unix"
+(*nix only). For the tcp transports the address format is `host:port`. For the
+unix transport the address should specify a filename to use when creating the
+unix domain socket. If no transport name is specified, "tcp" is assumed.
 
-*Number. Required with "admin enabled" = true*
+Examples:
 
-The TCP port the administration listener should listen on.
+	127.0.0.1:1234
+	tcp:127.0.0.1:1234
+	unix:/var/run/log-courier/admin.socket
+
+### `"log file"`
+
+*Filepath. Optional*  
+*Requires restart*
+
+A log file to save Log Courier's internal log into. May be used in conjunction with `"log stdout"` and `"log syslog"`.
+
+### `"log level"`
+
+*String. Optional. Default: "info".  
+Available values: "critical", "error", "warning", "notice", "info", "debug"*  
+*Requires restart*
+
+The maximum level of detail to produce in Log Courier's internal log.
+
+### `"log stdout"`
+
+*Boolean. Optional. Default: true*  
+*Requires restart*
+
+Enables sending of Log Courier's internal log to the console (stdout). May be used in conjunction with `"log syslog"` and `"log file"`.
+
+### `"log syslog"`
+
+*Boolean. Optional. Default: false*  
+*Requires restart*
+
+Enables sending of Log Courier's internal log to syslog. May be used in conjunction with `"log stdout"` and `"log file"`.
+
+*This option is ignored by Windows builds.*
+
+### `"max line bytes"`
+
+*Number. Optional. Default: 1048576*
+
+The maxmimum line length to process. If a line exceeds this length, it will be
+split across multiple events. Each split line will have a "tag" field added
+containing the tag "splitline". The final part of the line will not have a "tag"
+field added.
+
+If the `fields` configuration already contained a "tags" entry, and it is an
+array, it will be appended to. Otherwise, the "tag" field will be left as is.
+
+This setting can not be greater than the `spool max bytes` setting.
 
 ### `"persist directory"`
 
-*String. Optional. Default: "."*
+*String. Optional. Default: "."*  
 *Requires restart*
 
 The directory that Log Courier should store its persistence data in. The default
@@ -191,6 +244,18 @@ server acknowledges receipt of the events.
 How often Log Courier should check for changes on the filesystem, such as the
 appearance of new log files, rotations and deletions.
 
+### `"spool max bytes"`
+
+*Number. Optional. Default: 10485760*
+
+The maximum size of an event spool, before compression. If an incomplete spool
+does not have enough room for the next event, it will be flushed immediately.
+
+If this value is modified, the receiving end should also be configured with the
+new limit. For the Logstash plugin, this is the `max_packet_size` setting.
+
+The maximum value for this setting is 2147483648 (2 GiB).
+
 ### `"spool size"`
 
 *Number. Optional. Default: 1024*
@@ -204,76 +269,67 @@ give around a 25% boost of events per second, at the expense of more memory
 usage.
 
 *For most installations you should leave this at the default as it can
-easily cope with over 10,000 events a second on most machines and uses little
-memory. It is useful only in very specific circumstances.*
+easily cope with over 10,000 events a second and uses little memory. It is
+useful only in very specific circumstances.*
 
 ### `"spool timeout"`
 
 *Duration. Optional. Default: 5*
 
 The maximum amount of time to wait for a full spool. If an incomplete spool is
-not filled within this time limit, the spool will be flushed regardless.
-
-### `"log level"`
-
-*String. Optional. Default: "info".
-Available values: "critical", "error", "warning", "notice", "info", "debug"*
-*Requires restart*
-
-The maximum level of detail to produce in Log Courier's internal log.
-
-### `"log stdout"`
-
-*Boolean. Optional. Default: true*
-*Requires restart*
-
-Enables sending of Log Courier's internal log to the console (stdout). May be used in conjunction with `"log syslog"` and `"log file"`.
-
-### `"log syslog"`
-
-*Boolean. Optional. Default: false*
-*Requires restart*
-
-Enables sending of Log Courier's internal log to syslog. May be used in conjunction with `"log stdout"` and `"log file"`.
-
-*This option is ignored by Windows builds.*
-
-### `"log file"`
-
-*Filepath. Optional*
-*Requires restart*
-
-A log file to save Log Courier's internal log into. May be used in conjunction with `"log stdout"` and `"log syslog"`.
+not filled within this time limit, the spool will be flushed immediately.
 
 ## `"network"`
 
 The network configuration tells Log Courier where to ship the logs, and also
 what transport and security to use.
 
-### `"transport"`
+### `"curve server key"`
 
-*String. Optional. Default: "tls"  
-Available values: "tcp", "tls", "plainzmq", "zmq"*
+*String. Required with "transport" = "zmq". Not allowed otherwise*
 
-*Depending on how log-courier was built, some transports may not be available.
-Run `log-courier -list-supported` to see the list of transports available in
-a specific build of log-courier.*
+The Z85-encoded public key that corresponds to the server(s) secret key. Used
+to verify the server(s) identity. This can be generated using the Genkey tool.
 
-Sets the transport to use when sending logs to the servers. "tls" is recommended
-for most users and connects to a single server at random, reconnecting to a
-different server at random each time the connection fails. "curvezmq" connects
-to all specified servers and load balances events across them.
+### `"curve public key"`
 
-"tcp" and "plainzmq" are **insecure** equivalents to "tls" and "zmq"
-respectively that do not encrypt traffic or authenticate the identity of
-servers. These should only be used on trusted internal networks. If in doubt,
-use the secure authenticating transports "tls" and "zmq".
+*String. Required with "transport" = "zmq". Not allowed otherwise*
 
-"plainzmq" is only available if Log Courier was compiled with the "with=zmq3" or
-"with=zmq4" options.
+The Z85-encoded public key for this client. This can be generated using the
+Genkey tool.
 
-"zmq" is only available if Log Courier was compiled with the "with=zmq4"
-option.
+### `"curve secret key"`
+
+*String. Required with "transport" = "zmq". Not allowed otherwise*
+
+The Z85-encoded secret key for this client. This can be generated using the
+Genkey tool.
+
+### `"max pending payloads"`
+
+*Number. Optional. Default: 10*
+
+The maximum number of spools that can be in transit at any one time. Each spool
+will be kept in memory until the remote server acknowledges it.
+
+If Log Courier has sent this many spools to the remote server, and has not yet
+received acknowledgement responses for them (either because the remote server
+is busy or because the link has high latency), it will pause and wait before
+sending anymore data.
+
+*For most installations you should leave this at the default as it is high
+enough to maintain throughput even on high latency links and low enough not to
+cause excessive memory usage.*
+
+### `"reconnect"`
+
+*Duration. Optional. Default: 1*
+
+Pause this long before reconnecting. If the remote server is completely down,
+this slows down the rate of reconnection attempts.
+
+When using the ZMQ transport, this is how long to wait before restarting the ZMQ
+stack when it was reset.
 
 ### `"servers"`
 
@@ -302,27 +358,6 @@ Path to a PEM encoded certificate file to use as the client certificate.
 
 Path to a PEM encoded private key to use with the client certificate.
 
-### `"curve server key"`
-
-*String. Required with "transport" = "zmq". Not allowed otherwise*
-
-The Z85-encoded public key that corresponds to the server(s) secret key. Used
-to verify the server(s) identity. This can be generated using the Genkey tool.
-
-### `"curve public key"`
-
-*String. Required with "transport" = "zmq". Not allowed otherwise*
-
-The Z85-encoded public key for this client. This can be generated using the
-Genkey tool.
-
-### `"curve secret key"`
-
-*String. Required with "transport" = "zmq". Not allowed otherwise*
-
-The Z85-encoded secret key for this client. This can be generated using the
-Genkey tool.
-
 ### `"timeout"`
 
 *Duration. Optional. Default: 15*
@@ -336,31 +371,30 @@ will wait for a response to a request. If any response is not received within
 this time period the corresponding request is retransmitted. If no responses are
 received within this time period, the entire ZMQ stack is reset.
 
-### `"reconnect"`
+### `"transport"`
 
-*Duration. Optional. Default: 1*
+*String. Optional. Default: "tls"  
+Available values: "tcp", "tls", "plainzmq", "zmq"*
 
-Pause this long before reconnecting. If the remote server is completely down,
-this slows down the rate of reconnection attempts.
+*Depending on how log-courier was built, some transports may not be available.
+Run `log-courier -list-supported` to see the list of transports available in
+a specific build of log-courier.*
 
-When using the ZMQ transport, this is how long to wait before restarting the ZMQ
-stack when it was reset.
+Sets the transport to use when sending logs to the servers. "tls" is recommended
+for most users and connects to a single server at random, reconnecting to a
+different server at random each time the connection fails. "curvezmq" connects
+to all specified servers and load balances events across them.
 
-### `"max pending payloads"`
+"tcp" and "plainzmq" are **insecure** equivalents to "tls" and "zmq"
+respectively that do not encrypt traffic or authenticate the identity of
+servers. These should only be used on trusted internal networks. If in doubt,
+use the secure authenticating transports "tls" and "zmq".
 
-*Number. Optional. Default: 10*
+"plainzmq" is only available if Log Courier was compiled with the "with=zmq3" or
+"with=zmq4" options.
 
-The maximum number of spools that can be in transit at any one time. Each spool
-will be kept in memory until the remote server acknowledges it.
-
-If Log Courier has sent this many spools to the remote server, and has not yet
-received acknowledgement responses for them (either because the remote server
-is busy or because the link has high latency), it will pause and wait before
-sending anymore data.
-
-*For most installations you should leave this at the default as it is high
-enough to maintain throughput even on high latency links and low enough not to
-cause excessive memory usage.*
+"zmq" is only available if Log Courier was compiled with the "with=zmq4"
+option.
 
 ## `"files"`
 
@@ -378,48 +412,6 @@ configuration must be specified.
 		}
 	]
 ```
-
-### `"paths"`
-
-*Array of Fileglobs. Required*
-
-At least one Fileglob must be specified and all matching files for all provided
-globs will be tailed.
-
-See above for a description of the Fileglob field type.
-
-Examples:
-
-* `[ "/var/log/*.log" ]`
-* `[ "/var/log/program/log_????.log" ]`
-* `[ "/var/log/httpd/access.log", "/var/log/httpd/access.log.[0-9]" ]`
-
-### `"fields"`
-
-*Dictionary. Optional*
-*Configuration reload will only affect new or resumed files*
-
-Extra fields to attach the event prior to shipping. These can be simple strings,
-numbers or even arrays and dictionaries.
-
-Examples:
-
-* `{ "type": "syslog" }`
-* `{ "type": "apache", "server_names": [ "example.com", "www.example.com" ] }`
-* `{ "type": "program", "program": { "exec": "program.py", "args": [ "--run", "--daemon" ] } }`
-
-### `"dead time"`
-
-*Duration. Optional. Default: "24h"*
-*Configuration reload will only affect new or resumed files*
-
-If a log file has not been modified in this time period, it will be closed and
-Log Courier will simply watch it for modifications. If the file is modified it
-will be reopened.
-
-If a log file that is being harvested is deleted, it will remain on disk until
-Log Courier closes it. Therefore it is important to keep this value sensible to
-ensure old log files are not kept open preventing deletion.
 
 ### `"codec"`
 
@@ -444,6 +436,48 @@ Aside from "plain", the following codecs are available at this time.
 
 * [Filter](codecs/Filter.md)
 * [Multiline](codecs/Multiline.md)
+
+### `"dead time"`
+
+*Duration. Optional. Default: "24h"*
+*Configuration reload will only affect new or resumed files*
+
+If a log file has not been modified in this time period, it will be closed and
+Log Courier will simply watch it for modifications. If the file is modified it
+will be reopened.
+
+If a log file that is being harvested is deleted, it will remain on disk until
+Log Courier closes it. Therefore it is important to keep this value sensible to
+ensure old log files are not kept open preventing deletion.
+
+### `"fields"`
+
+*Dictionary. Optional*
+*Configuration reload will only affect new or resumed files*
+
+Extra fields to attach the event prior to shipping. These can be simple strings,
+numbers or even arrays and dictionaries.
+
+Examples:
+
+* `{ "type": "syslog" }`
+* `{ "type": "apache", "server_names": [ "example.com", "www.example.com" ] }`
+* `{ "type": "program", "program": { "exec": "program.py", "args": [ "--run", "--daemon" ] } }`
+
+### `"paths"`
+
+*Array of Fileglobs. Required*
+
+At least one Fileglob must be specified and all matching files for all provided
+globs will be tailed.
+
+See above for a description of the Fileglob field type.
+
+Examples:
+
+* `[ "/var/log/*.log" ]`
+* `[ "/var/log/program/log_????.log" ]`
+* `[ "/var/log/httpd/access.log", "/var/log/httpd/access.log.[0-9]" ]`
 
 ## `"includes"`
 

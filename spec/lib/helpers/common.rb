@@ -15,7 +15,7 @@
 # limitations under the License.
 
 require 'thread'
-require 'logger'
+require 'cabin'
 require 'log-courier/server'
 
 # Common helpers for testing both ruby client and the courier
@@ -44,7 +44,7 @@ shared_context 'Helpers' do
     # When we add a file we log it here, so after we can remove them
     @files = []
 
-    @event_queue = Queue.new
+    @event_queue = SizedQueue.new 10_000
 
     @servers = {}
     @server_counts = {}
@@ -73,9 +73,10 @@ shared_context 'Helpers' do
 
     id = args[:id]
 
-    logger = Logger.new(STDOUT)
-    logger.progname = "Server #{id}"
-    logger.level = Logger::DEBUG
+    logger = Cabin::Channel.new
+    logger.subscribe STDOUT
+    logger['instance'] = id
+    logger.level = :debug
 
     raise 'Server already initialised' if @servers.key?(id)
 
@@ -173,7 +174,7 @@ shared_context 'Helpers' do
     check = args[:check]
 
     waited = 0
-    while total > 0 && waited < EVENT_WAIT_COUNT
+    while total > 0 && waited <= EVENT_WAIT_COUNT
       if @event_queue.length == 0
         sleep(EVENT_WAIT_TIME)
         waited += 1

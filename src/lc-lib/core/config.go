@@ -33,12 +33,13 @@ import (
 
 const (
   default_GeneralConfig_AdminEnabled       bool          = false
-  default_GeneralConfig_AdminBind          string        = "127.0.0.1"
-  default_GeneralConfig_AdminPort          int           = 0
+  default_GeneralConfig_AdminBind          string        = "tcp:127.0.0.1:1234"
   default_GeneralConfig_PersistDir         string        = "."
   default_GeneralConfig_ProspectInterval   time.Duration = 10 * time.Second
   default_GeneralConfig_SpoolSize          int64         = 1024
+  default_GeneralConfig_SpoolMaxBytes      int64         = 10485760
   default_GeneralConfig_SpoolTimeout       time.Duration = 5 * time.Second
+  default_GeneralConfig_MaxLineBytes       int64         = 1048576
   default_GeneralConfig_LogLevel           logging.Level = logging.INFO
   default_GeneralConfig_LogStdout          bool          = true
   default_GeneralConfig_LogSyslog          bool          = false
@@ -60,12 +61,13 @@ type Config struct {
 
 type GeneralConfig struct {
   AdminEnabled     bool          `config:"admin enabled"`
-  AdminBind        string        `config:"admin bind address"`
-  AdminPort        int           `config:"admin port"`
+  AdminBind        string        `config:"admin listen address"`
   PersistDir       string        `config:"persist directory"`
   ProspectInterval time.Duration `config:"prospect interval"`
   SpoolSize        int64         `config:"spool size"`
+  SpoolMaxBytes    int64         `config:"spool max bytes"`
   SpoolTimeout     time.Duration `config:"spool timeout"`
+  MaxLineBytes     int64         `config:"max line bytes"`
   LogLevel         logging.Level `config:"log level"`
   LogStdout        bool          `config:"log stdout"`
   LogSyslog        bool          `config:"log syslog"`
@@ -255,21 +257,6 @@ func (c *Config) Load(path string) (err error) {
     }
   }
 
-  // Validations and defaults
-  if c.General.AdminEnabled {
-    c.General.AdminPort = default_GeneralConfig_AdminPort
-
-    if c.General.AdminPort == 0 {
-      err = fmt.Errorf("An admin port must be specified when admin is enabled")
-      return
-    }
-
-    if c.General.AdminPort <= 0 || c.General.AdminPort >= 65535 {
-      err = fmt.Errorf("Invalid admin port specified")
-      return
-    }
-  }
-
   if c.General.AdminBind == "" {
     c.General.AdminBind = default_GeneralConfig_AdminBind
   }
@@ -286,8 +273,26 @@ func (c *Config) Load(path string) (err error) {
     c.General.SpoolSize = default_GeneralConfig_SpoolSize
   }
 
+  // Enforce maximum of 2 GB since event transmit length is uint32
+  if c.General.SpoolMaxBytes == 0 {
+    c.General.SpoolMaxBytes = default_GeneralConfig_SpoolMaxBytes
+  }
+  if c.General.SpoolMaxBytes > 2*1024*1024*1024 {
+    err = fmt.Errorf("/general/spool max bytes can not be greater than 2 GiB")
+    return
+  }
+
   if c.General.SpoolTimeout == time.Duration(0) {
     c.General.SpoolTimeout = default_GeneralConfig_SpoolTimeout
+  }
+
+  // Max line bytes can not be larger than spool max bytes
+  if c.General.MaxLineBytes == 0 {
+    c.General.MaxLineBytes = default_GeneralConfig_MaxLineBytes
+  }
+  if c.General.MaxLineBytes > c.General.SpoolMaxBytes {
+    err = fmt.Errorf("/general/max line bytes can not be greater than /general/spool max bytes")
+    return
   }
 
   if c.Network.Transport == "" {
@@ -323,13 +328,15 @@ func (c *Config) Load(path string) (err error) {
         return
       }
     } else {
-      err = fmt.Errorf("Unrecognised codec '%s'", c.Files[k].Codec.Name)
+      err = fmt.Errorf("Unrecognised codec '%s' for 'files' entry %d", c.Files[k].Codec.Name, k)
       return
     }
 
     if c.Files[k].DeadTime == time.Duration(0) {
       c.Files[k].DeadTime = time.Duration(default_FileConfig_DeadTime) * time.Second
     }
+
+    // TODO: Event transmit length is uint32, if fields length is rediculous we will fail
   }
 
   return

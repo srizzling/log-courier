@@ -29,18 +29,16 @@ import (
 )
 
 type Admin struct {
-  client    *admin.Client
-  connected bool
-  quiet     bool
-  host      string
-  port      int
+  client        *admin.Client
+  connected     bool
+  quiet         bool
+  admin_connect string
 }
 
-func NewAdmin(quiet bool, host string, port int) *Admin {
+func NewAdmin(quiet bool, admin_connect string) *Admin {
   return &Admin{
-    quiet: quiet,
-    host:  host,
-    port:  port,
+    quiet:         quiet,
+    admin_connect: admin_connect,
   }
 }
 
@@ -49,10 +47,10 @@ func (a *Admin) connect() error {
     var err error
 
     if !a.quiet {
-      fmt.Printf("Attempting connection to %s:%d...\n", a.host, a.port)
+      fmt.Printf("Attempting connection to %s...\n", a.admin_connect)
     }
 
-    if a.client, err = admin.NewClient(a.host, a.port); err != nil {
+    if a.client, err = admin.NewClient(a.admin_connect); err != nil {
       fmt.Printf("Failed to connect: %s\n", err)
       return err
     }
@@ -82,13 +80,6 @@ func (a *Admin) ProcessCommand(command string) bool {
     var err error
 
     switch command {
-    case "ping":
-      err = a.client.Ping()
-      if err != nil {
-        break
-      }
-
-      fmt.Printf("Pong\n")
     case "reload":
       err = a.client.Reload()
       if err != nil {
@@ -97,22 +88,16 @@ func (a *Admin) ProcessCommand(command string) bool {
 
       fmt.Printf("Configuration reload successful\n")
     case "status":
-      var snapshots []*core.Snapshot
+      var snaps *core.Snapshot
 
-      snapshots, err = a.client.FetchSnapshot()
+      snaps, err = a.client.FetchSnapshot()
       if err != nil {
         break
       }
 
-      for _, snap := range snapshots {
-        fmt.Printf("%s:\n", snap.Description())
-        a.renderSnap("  ", snap)
-      }
+      a.renderSnap("", snaps)
     case "help":
-      fmt.Printf("Available commands:\n")
-      fmt.Printf("  reload    Reload configuration\n")
-      fmt.Printf("  status    Display the current shipping status\n")
-      fmt.Printf("  exit      Exit\n")
+      PrintHelp()
     default:
       fmt.Printf("Unknown command: %s\n", command)
     }
@@ -147,6 +132,8 @@ func (a *Admin) renderSnap(indent string, snap *core.Snapshot) {
         fmt.Printf(indent + "%s: %.2f\n", k, t)
       } else if t, ok := v.(time.Time); ok {
         fmt.Printf(indent + "%s: %s\n", k, t.Format("_2 Jan 2006 15.04.05"))
+      } else if t, ok := v.(time.Duration); ok {
+        fmt.Printf(indent + "%s: %v\n", k, t-(t%time.Second))
       } else {
         fmt.Printf(indent + "%s: %v\n", k, v)
       }
@@ -233,18 +220,23 @@ WatchLoop:
   return true
 }
 
+func PrintHelp() {
+  fmt.Printf("Available commands:\n")
+  fmt.Printf("  reload    Reload configuration\n")
+  fmt.Printf("  status    Display the current shipping status\n")
+  fmt.Printf("  exit      Exit\n")
+}
+
 func main() {
   var version bool
   var quiet bool
   var watch bool
-  var host string
-  var port int
+  var admin_connect string
 
   flag.BoolVar(&version, "version", false, "display the Log Courier client version")
   flag.BoolVar(&quiet, "quiet", false, "quietly execute the command line argument and output only the result")
   flag.BoolVar(&watch, "watch", false, "repeat the command specified on the command line every second")
-  flag.StringVar(&host, "host", "127.0.0.1", "the Log Courier host to connect to (default 127.0.0.1)")
-  flag.IntVar(&port, "port", 1234, "the Log Courier monitor port (default 1234)")
+  flag.StringVar(&admin_connect, "connect", "tcp:127.0.0.1:1234", "the Log Courier instance to connect to (default tcp:127.0.0.1:1234)")
 
   flag.Parse()
 
@@ -257,10 +249,16 @@ func main() {
     fmt.Printf("Log Courier version %s client\n\n", core.Log_Courier_Version)
   }
 
-  admin := NewAdmin(quiet, host, port)
-
   args := flag.Args()
+
   if len(args) != 0 {
+    // Don't require a connection to display the help message
+    if args[0] == "help" {
+      PrintHelp()
+      os.Exit(0)
+    }
+
+    admin := NewAdmin(quiet, admin_connect)
     if admin.argsCommand(args, watch) {
       os.Exit(0)
     }
@@ -277,6 +275,7 @@ func main() {
     os.Exit(1)
   }
 
+  admin := NewAdmin(quiet, admin_connect)
   if err := admin.connect(); err != nil {
     return
   }
