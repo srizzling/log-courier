@@ -108,8 +108,8 @@ type StreamConfig struct {
 	Fields   map[string]interface{} `config:"fields"`
 	Codec    CodecConfigStub        `config:"codec"`
 	DeadTime time.Duration          `config:"dead time"`
-
 	CodecFactory CodecFactory
+	ResetOnResume bool	  	  	  `config:"reset on resume"`
 }
 
 type FileConfig struct {
