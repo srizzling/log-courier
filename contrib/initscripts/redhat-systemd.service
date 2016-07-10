@@ -9,6 +9,7 @@ ExecStartPre=/usr/sbin/log-courier ${LOG_COURIER_ARGS} -config-test
 ExecStart=/usr/sbin/log-courier ${LOG_COURIER_ARGS}
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s TERM $MAINPID
+LimitNOFILE=64000
 PrivateTmp=true
 StandardError=syslog
 
